@@ -186,6 +186,54 @@ await fastify.register(httpProxy, {
   http2: false
 });
 
+// Proxy pour les ressources Vite du front-service
+await fastify.register(httpProxy, {
+  upstream: process.env.FRONT_SERVICE_URL || 'http://front-service:3004',
+  prefix: '/@vite',
+  rewritePrefix: '/@vite',
+  http2: false
+});
+
+// Proxy pour les fichiers sources du front-service
+await fastify.register(httpProxy, {
+  upstream: process.env.FRONT_SERVICE_URL || 'http://front-service:3004',
+  prefix: '/src',
+  rewritePrefix: '/src',
+  http2: false
+});
+
+// Proxy pour les assets du front-service
+await fastify.register(httpProxy, {
+  upstream: process.env.FRONT_SERVICE_URL || 'http://front-service:3004',
+  prefix: '/vite.svg',
+  rewritePrefix: '/vite.svg',
+  http2: false
+});
+
+// Proxy pour les node_modules Vite
+await fastify.register(httpProxy, {
+  upstream: process.env.FRONT_SERVICE_URL || 'http://front-service:3004',
+  prefix: '/node_modules',
+  rewritePrefix: '/node_modules',
+  http2: false
+});
+
+// Proxy pour les routes internes Vite (@id/*)
+await fastify.register(httpProxy, {
+  upstream: process.env.FRONT_SERVICE_URL || 'http://front-service:3004',
+  prefix: '/@id',
+  rewritePrefix: '/@id',
+  http2: false
+});
+
+// Proxy pour les assets généraux (css, js, images, etc.)
+await fastify.register(httpProxy, {
+  upstream: process.env.FRONT_SERVICE_URL || 'http://front-service:3004',
+  prefix: '/assets',
+  rewritePrefix: '/assets',
+  http2: false
+});
+
 // ============================================================================
 // DÉMARRAGE DU SERVEUR
 // ============================================================================
