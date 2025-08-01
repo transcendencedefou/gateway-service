@@ -11,6 +11,9 @@ RUN npm install
 # Copier le code source
 COPY . .
 
+# Permissions d'exécution pour le script d'entrée
+RUN chmod +x ./docker-entrypoint.sh
+
 # Exposer le port
 EXPOSE 3003
 

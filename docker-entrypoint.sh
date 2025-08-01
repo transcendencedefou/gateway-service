@@ -4,7 +4,7 @@ echo "🚀 Starting gateway-service with Vault integration..."
 
 # Load environment variables from Vault
 node -e "
-const { loadEnvFromVault } = require('./src/VaultClient.js');
+const { loadEnvFromVault } = require('../shared/vault-client');
 
 async function loadEnv() {
   try {
@@ -17,6 +17,7 @@ async function loadEnv() {
     process.env.AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://auth-service:3000';
     process.env.USER_SERVICE_URL = process.env.USER_SERVICE_URL || 'http://user-service:3001';
     process.env.GAME_SERVICE_URL = process.env.GAME_SERVICE_URL || 'http://game-service:3002';
+    process.env.FRONT_SERVICE_URL = process.env.FRONT_SERVICE_URL || 'http://front-service:3004';
   }
 }
 

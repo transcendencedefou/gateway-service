@@ -4,22 +4,10 @@ import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
-import { VaultManager } from './vault.js';
 
 const fastify = Fastify({
   logger: true,
   maxParamLength: 5000
-});
-
-// Initialize Vault
-const vaultManager = new VaultManager();
-let vaultReady = false;
-
-// Initialize Vault on startup
-vaultManager.initialize().then(() => {
-  vaultReady = true;
-}).catch((error) => {
-  console.error('❌ Failed to initialize Vault:', error);
 });
 
 // Configuration CORS
@@ -129,7 +117,13 @@ fastify.get('/', async (request, reply) => {
             <code>/games/*</code>
         </div>
 
+        <div class="service">
+            <h3>🖥️ Front Service</h3>
+            <code>/app/*</code> - Interface utilisateur Vue.js avec Babylon.js
+        </div>
+
         <p>
+            <a href="/app">🎮 Lancer l'application</a>
             <a href="/docs">📚 Documentation</a>
             <a href="/health">🏥 Health Check</a>
         </p>
@@ -138,63 +132,22 @@ fastify.get('/', async (request, reply) => {
     `;
 });
 
-// Health check global avec intégration Vault
+// Health check simplifié
 fastify.get('/health', async (request, reply) => {
   const services = {
     gateway: { status: 'healthy', timestamp: new Date().toISOString() },
-    auth: { url: process.env.AUTH_SERVICE_URL },
-    user: { url: process.env.USER_SERVICE_URL },
-    game: { url: process.env.GAME_SERVICE_URL },
-    vault: vaultReady ? await vaultManager.getHealthStatus() : { status: 'initializing' }
+    auth: { url: process.env.AUTH_SERVICE_URL || 'http://auth-service:3000' },
+    user: { url: process.env.USER_SERVICE_URL || 'http://user-service:3001' },
+    game: { url: process.env.GAME_SERVICE_URL || 'http://game-service:3002' },
+    front: { url: process.env.FRONT_SERVICE_URL || 'http://front-service:3004' },
+    vault: { url: process.env.VAULT_SERVICE_URL || 'http://vault-service:8300' }
   };
 
   return {
     status: 'healthy',
     services,
-    timestamp: new Date().toISOString(),
-    vault_ready: vaultReady
+    timestamp: new Date().toISOString()
   };
-});
-
-// Route pour les secrets Vault (admin uniquement)
-fastify.get('/admin/vault/secrets', async (request, reply) => {
-  if (!vaultReady) {
-    reply.code(503);
-    return { error: 'Vault not ready' };
-  }
-
-  try {
-    const dbSecrets = await vaultManager.getSecret('database');
-    const jwtSecrets = await vaultManager.getSecret('jwt');
-
-    return {
-      database: { ...dbSecrets, password: '***' }, // Masquer le mot de passe
-      jwt: { ...jwtSecrets, secret: '***' }, // Masquer le secret
-      timestamp: new Date().toISOString()
-    };
-  } catch (error) {
-    reply.code(500);
-    return { error: 'Failed to retrieve secrets' };
-  }
-});
-
-// Route pour rotation des secrets JWT
-fastify.post('/admin/vault/rotate-jwt', async (request, reply) => {
-  if (!vaultReady) {
-    reply.code(503);
-    return { error: 'Vault not ready' };
-  }
-
-  try {
-    const newSecret = await vaultManager.rotateJWTSecret();
-    return {
-      message: 'JWT secret rotated successfully',
-      timestamp: new Date().toISOString()
-    };
-  } catch (error) {
-    reply.code(500);
-    return { error: 'Failed to rotate JWT secret' };
-  }
 });
 
 // ============================================================================
@@ -225,6 +178,14 @@ await fastify.register(httpProxy, {
   http2: false
 });
 
+// Proxy vers front-service (interface utilisateur)
+await fastify.register(httpProxy, {
+  upstream: process.env.FRONT_SERVICE_URL || 'http://front-service:3004',
+  prefix: '/app',
+  rewritePrefix: '/',
+  http2: false
+});
+
 // ============================================================================
 // DÉMARRAGE DU SERVEUR
 // ============================================================================
@@ -237,6 +198,7 @@ const start = async () => {
     console.log('🔐 Auth Service: http://localhost:3003/auth');
     console.log('👤 User Service: http://localhost:3003/users');
     console.log('🎮 Game Service: http://localhost:3003/games');
+    console.log('🖥️ Front Service: http://localhost:3003/app');
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);
