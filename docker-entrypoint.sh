@@ -4,7 +4,7 @@ echo "🚀 Starting gateway-service with Vault integration..."
 
 # Load environment variables from Vault
 node -e "
-const { loadEnvFromVault } = require('../shared/vault-client');
+const { loadEnvFromVault } = require('./src/VaultClient');
 
 async function loadEnv() {
   try {
