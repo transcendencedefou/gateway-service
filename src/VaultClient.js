@@ -7,32 +7,34 @@ import SecretManager from './SecretManager.js';
  */
 class VaultClient {
   constructor(config = {}) {
-    const host = config.host || 'vault-service';
-    const port = config.port || 8300;
-    this.baseUrl = `http://${host}:${port}`;
-    this.serviceName = config.serviceName || 'auth-service';
+    // Utiliser VAULT_SERVICE_URL en priorité, puis fallback
+    const vaultServiceUrl = process.env.VAULT_SERVICE_URL || 'http://vault-service:8300';
+    const url = new URL(vaultServiceUrl);
+
+    this.baseUrl = vaultServiceUrl;
+    this.serviceName = config.serviceName || 'gateway-service';
     this.token = config.token;
-    this.timeout = config.timeout || 10000; // 10s timeout
-    this.retryCount = config.retryCount || 3;
+    this.timeout = config.timeout || 15000; // Augmenter le timeout à 15s
+    this.retryCount = config.retryCount || 5; // Augmenter les tentatives
   }
 
   /**
    * Attendre que Vault soit disponible avec retry
    * @param {number} maxRetries
    */
-  async waitForVault(maxRetries = 30) {
+  async waitForVault(maxRetries = 60) {
     console.log('🔄 Waiting for Vault service to be available...');
 
     for (let i = 0; i < maxRetries; i++) {
       try {
         const response = await this.makeRequest('/health');
-        if (response.success) {
+        if (response && (response.success || response.status === 'ok' || response.status === 'healthy')) {
           console.log('✅ Vault service is available');
           return;
         }
       } catch (error) {
-        console.log(`⏳ Vault not ready yet, attempt ${i + 1}/${maxRetries}...`);
-        await this.sleep(2000); // Attendre 2 secondes
+        console.log(`⏳ Vault not ready yet, attempt ${i + 1}/${maxRetries}... (${error.message})`);
+        await this.sleep(3000); // Attendre 3 secondes au lieu de 2
       }
     }
 
@@ -155,7 +157,7 @@ class VaultClient {
  * @param {string} serviceName - Nom du service
  * @returns {Promise<void>}
  */
-async function loadEnvFromVault(serviceName = 'auth-service') {
+async function loadEnvFromVault(serviceName = 'gateway-service') {
   const vaultClient = new VaultClient({ serviceName });
 
   try {
@@ -165,7 +167,9 @@ async function loadEnvFromVault(serviceName = 'auth-service') {
     // Configuration de la base de données avec validation
     try {
       const dbConfig = await vaultClient.getDatabaseConfig();
-      const dbUrl = dbConfig.getDatabaseUrl(); // Pas de paramètre, base unique
+
+      // Construire l'URL de la base de données depuis la configuration
+      const dbUrl = `mysql://${dbConfig.username}:${dbConfig.password}@${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`;
 
       // Valider l'URL de base de données
       if (!dbUrl || !dbUrl.startsWith('mysql://')) {
@@ -173,10 +177,12 @@ async function loadEnvFromVault(serviceName = 'auth-service') {
       }
 
       process.env.DATABASE_URL = dbUrl;
-      console.log(`✅ Database configuration loaded for shared database: transcendence`);
+      console.log(`✅ Database configuration loaded for shared database: ${dbConfig.database}`);
     } catch (error) {
       console.warn(`⚠️ Failed to load database config from Vault: ${error.message}`);
-      // Fallback sera géré par le service
+      // Utiliser des credentials cohérents avec ceux du vault-init.sh
+      console.warn('🔧 Using fallback database configuration consistent with Vault defaults');
+      process.env.DATABASE_URL = 'mysql://user:userSecure123!@db:3306/transcendence';
     }
 
     // URLs des services avec validation
@@ -314,12 +320,18 @@ async function loadEnvFromVault(serviceName = 'auth-service') {
     }
 
     console.log(`✅ Environment variables loaded from Vault for ${serviceName}`);
+    return true; // Indiquer le succès
 
   } catch (error) {
     console.error(`❌ Failed to load environment from Vault for ${serviceName}:`, error.message);
     console.warn('🔧 Using fallback configuration...');
 
     // Fallbacks critiques pour éviter les plantages
+    if (!process.env.DATABASE_URL) {
+      // Utiliser les mêmes credentials que ceux configurés dans Vault
+      process.env.DATABASE_URL = 'mysql://user:userSecure123!@db:3306/transcendence';
+    }
+
     if (!process.env.PORT) {
       const portMap = {
         'auth-service': '3000',
@@ -338,7 +350,8 @@ async function loadEnvFromVault(serviceName = 'auth-service') {
       console.warn('🔧 Generated temporary JWT secret for development');
     }
 
-    // Ne pas faire throw ici pour permettre au service de démarrer avec des fallbacks
+    console.log(`⚠️ Using fallback configuration for ${serviceName}`);
+    return false; // Indiquer l'échec
   }
 }
 
@@ -348,14 +361,8 @@ async function loadEnvFromVault(serviceName = 'auth-service') {
  * @returns {string} Nom de la base de données
  */
 function getServiceDatabase(serviceName) {
-  const dbMap = {
-    'auth-service': 'auth_db',
-    'user-service': 'user_db',
-    'game-service': 'game_db',
-    'gateway-service': 'user_db' // Gateway utilise la DB user pour l'agrégation
-  };
-
-  return dbMap[serviceName] || 'transcendence_db';
+  // Tous les services utilisent maintenant la base unique 'transcendence'
+  return 'transcendence';
 }
 
 export {

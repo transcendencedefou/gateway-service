@@ -2,6 +2,17 @@
 
 echo "🚀 Starting gateway-service with Vault integration..."
 
+# Wait for vault-service to be ready (important!)
+echo "⏳ Waiting for vault-service to be ready..."
+for i in {1..30}; do
+  if curl -s -f http://vault-service:8300/health > /dev/null 2>&1; then
+    echo "✅ Vault-service is ready!"
+    break
+  fi
+  echo "Attempt $i/30: vault-service not ready, waiting 3s..."
+  sleep 3
+done
+
 # Create temporary env file
 ENV_FILE="/tmp/.gateway-env"
 
@@ -16,7 +27,7 @@ async function loadEnv() {
     console.log('✅ Environment loaded from Vault');
   } catch (error) {
     console.error('❌ Failed to load from Vault, using fallbacks:', error.message);
-    // Set fallback environment variables
+    // Set fallback environment variables consistent with Vault
     process.env.PORT = process.env.PORT || '3003';
     process.env.AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://auth-service:3000';
     process.env.USER_SERVICE_URL = process.env.USER_SERVICE_URL || 'http://user-service:3001';

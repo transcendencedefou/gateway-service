@@ -1,7 +1,7 @@
 FROM node:24-alpine
 
-# Installation de bash pour les scripts d'entrée
-RUN apk add --no-cache bash
+# Installation de bash pour les scripts d'entrée et curl pour les checks
+RUN apk add --no-cache bash curl
 
 WORKDIR /app
 
@@ -20,5 +20,5 @@ RUN chmod +x ./docker-entrypoint.sh
 # Exposer le port
 EXPOSE 3003
 
-# Démarrer l'application
-CMD ["npm", "run", "dev"]
+# Point d'entrée avec script Vault
+ENTRYPOINT ["./docker-entrypoint.sh"]
