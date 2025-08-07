@@ -1,4 +1,4 @@
-const crypto = require('crypto');
+import crypto from 'crypto';
 
 /**
  * Générateur de secrets sécurisés et utilitaires de sécurité
@@ -29,12 +29,12 @@ class SecretManager {
   static generateSecurePassword(length = 16) {
     const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
     let password = '';
-    
+
     for (let i = 0; i < length; i++) {
       const randomIndex = crypto.randomInt(0, charset.length);
       password += charset[randomIndex];
     }
-    
+
     return password;
   }
 
@@ -48,9 +48,9 @@ class SecretManager {
     if (!salt) {
       salt = crypto.randomBytes(16).toString('hex');
     }
-    
+
     const hash = crypto.pbkdf2Sync(data, salt, 10000, 64, 'sha512').toString('hex');
-    
+
     return { hash, salt };
   }
 
@@ -76,10 +76,10 @@ class SecretManager {
     if (!secret || secret.length <= visibleChars) {
       return '***';
     }
-    
+
     const visible = secret.substring(0, visibleChars);
     const masked = '*'.repeat(Math.min(secret.length - visibleChars, 8));
-    
+
     return `${visible}${masked}`;
   }
 
@@ -118,4 +118,4 @@ class SecretManager {
   }
 }
 
-module.exports = SecretManager;
+export default SecretManager;

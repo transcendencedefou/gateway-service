@@ -1,5 +1,8 @@
 FROM node:24-alpine
 
+# Installation de bash pour les scripts d'entrée
+RUN apk add --no-cache bash
+
 WORKDIR /app
 
 # Copier les fichiers de dépendances

@@ -1,19 +1,42 @@
-const http = require('http');
-const SecretManager = require('./SecretManager');
+import http from 'http';
+import SecretManager from './SecretManager.js';
 
 /**
  * Client pour interagir avec le service Vault de Transcendence
- * Implémente les meilleures pratiques de sécurité
+ * Implémente les meilleures pratiques de sécurité pour auth-service
  */
 class VaultClient {
-  constructor(config) {
+  constructor(config = {}) {
     const host = config.host || 'vault-service';
     const port = config.port || 8300;
     this.baseUrl = `http://${host}:${port}`;
-    this.serviceName = config.serviceName;
+    this.serviceName = config.serviceName || 'auth-service';
     this.token = config.token;
     this.timeout = config.timeout || 10000; // 10s timeout
     this.retryCount = config.retryCount || 3;
+  }
+
+  /**
+   * Attendre que Vault soit disponible avec retry
+   * @param {number} maxRetries
+   */
+  async waitForVault(maxRetries = 30) {
+    console.log('🔄 Waiting for Vault service to be available...');
+
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        const response = await this.makeRequest('/health');
+        if (response.success) {
+          console.log('✅ Vault service is available');
+          return;
+        }
+      } catch (error) {
+        console.log(`⏳ Vault not ready yet, attempt ${i + 1}/${maxRetries}...`);
+        await this.sleep(2000); // Attendre 2 secondes
+      }
+    }
+
+    throw new Error('❌ Vault service is not available after maximum retries');
   }
 
   /**
@@ -49,8 +72,7 @@ class VaultClient {
   }
 
   /**
-   * Récupère la configuration de la base de données
-   * @returns {Promise<Object>} Configuration de la DB
+   * Récupère la configuration de base de données
    */
   async getDatabaseConfig() {
     const response = await this.makeRequest('/api/database/config');
@@ -62,7 +84,6 @@ class VaultClient {
 
   /**
    * Récupère les URLs des services
-   * @returns {Promise<Object>} URLs des services
    */
   async getServiceUrls() {
     const response = await this.makeRequest('/api/services/urls');
@@ -73,116 +94,33 @@ class VaultClient {
   }
 
   /**
-   * Récupère l'URL complète de la base de données pour un service
-   * @param {string} database - Nom de la base de données
-   * @returns {Promise<string>} URL de connexion
+   * Fonction utilitaire pour les requêtes HTTP
    */
-  async getDatabaseUrl(database) {
-    const dbConfig = await this.getDatabaseConfig();
-    return dbConfig.getDatabaseUrl(database);
-  }
+  async makeRequest(endpoint, options = {}) {
+    const url = `${this.baseUrl}${endpoint}`;
+    const method = options.method || 'GET';
+    const body = options.body ? JSON.stringify(options.body) : null;
 
-  /**
-   * Attend que le service Vault soit prêt avec retry exponentiel
-   * @param {number} maxRetries - Nombre maximum de tentatives
-   * @returns {Promise<void>}
-   */
-  async waitForVault(maxRetries = 30) {
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        await this.makeHealthRequest();
-        console.log(`✅ Vault service is ready for ${this.serviceName}`);
-        return;
-      } catch (error) {
-        const waitTime = Math.min(1000 * Math.pow(1.5, i), 10000); // Exponential backoff, max 10s
-        console.log(`⏳ Waiting for Vault service... (${i + 1}/${maxRetries}) - retry in ${waitTime}ms`);
-        await this.sleep(waitTime);
-      }
-    }
-    throw new Error('Vault service is not available after maximum retries');
-  }
-
-  /**
-   * Utilitaire pour pause
-   * @param {number} ms - Millisecondes
-   * @returns {Promise<void>}
-   */
-  sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
-
-  /**
-   * Effectue une requête de santé vers le service Vault
-   * @returns {Promise<void>}
-   */
-  makeHealthRequest() {
     return new Promise((resolve, reject) => {
-      const url = new URL(`${this.baseUrl}/health`);
-      const options = {
-        hostname: url.hostname,
-        port: url.port,
-        path: url.pathname,
-        method: 'GET',
-        timeout: 5000
-      };
-
-      const req = http.request(options, (res) => {
-        if (res.statusCode === 200) {
-          resolve();
-        } else {
-          reject(new Error(`Health check failed: ${res.statusCode}`));
-        }
-      });
-
-      req.on('error', reject);
-      req.on('timeout', () => {
-        req.destroy();
-        reject(new Error('Health check timeout'));
-      });
-
-      req.end();
-    });
-  }
-
-  /**
-   * Effectue une requête HTTP vers le service Vault
-   * @param {string} endpoint - Endpoint à appeler
-   * @param {Object} options - Options de la requête
-   * @returns {Promise<Object>} Réponse JSON
-   */
-  makeRequest(endpoint, options = {}) {
-    return new Promise((resolve, reject) => {
-      const url = new URL(`${this.baseUrl}${endpoint}`);
-      const postData = options.body ? JSON.stringify(options.body) : undefined;
-
-      const requestOptions = {
-        hostname: url.hostname,
-        port: url.port,
-        path: url.pathname,
-        method: options.method || 'GET',
+      const req = http.request(url, {
+        method,
         headers: {
           'Content-Type': 'application/json',
-          ...(postData && { 'Content-Length': Buffer.byteLength(postData) }),
           ...(this.token && { 'Authorization': `Bearer ${this.token}` }),
-          ...options.headers
-        }
-      };
-
-      const req = http.request(requestOptions, (res) => {
+          ...(body && { 'Content-Length': Buffer.byteLength(body) })
+        },
+        timeout: this.timeout
+      }, (res) => {
         let data = '';
 
-        res.on('data', (chunk) => {
+        res.on('data', chunk => {
           data += chunk;
         });
 
         res.on('end', () => {
           try {
-            const jsonData = JSON.parse(data);
-            if (res.statusCode >= 200 && res.statusCode < 300) {
-              resolve(jsonData);
-            } else {
-              reject(new Error(`HTTP ${res.statusCode}: ${jsonData.error || res.statusMessage}`));
-            }
+            const parsed = JSON.parse(data);
+            resolve(parsed);
           } catch (error) {
             reject(new Error(`Invalid JSON response: ${data}`));
           }
@@ -190,23 +128,34 @@ class VaultClient {
       });
 
       req.on('error', reject);
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('Request timeout'));
+      });
 
-      if (postData) {
-        req.write(postData);
+      if (body) {
+        req.write(body);
       }
 
       req.end();
     });
   }
+
+  /**
+   * Fonction utilitaire pour les délais
+   */
+  sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
 }
 
 /**
- * Charge les variables d'environnement depuis Vault pour un service
- * Implémente la sécurité et la validation
+ * Charge les variables d'environnement depuis Vault pour le service d'authentification
+ * Implémente la sécurité et la validation spécifiques à auth-service
  * @param {string} serviceName - Nom du service
  * @returns {Promise<void>}
  */
-async function loadEnvFromVault(serviceName) {
+async function loadEnvFromVault(serviceName = 'auth-service') {
   const vaultClient = new VaultClient({ serviceName });
 
   try {
@@ -216,7 +165,7 @@ async function loadEnvFromVault(serviceName) {
     // Configuration de la base de données avec validation
     try {
       const dbConfig = await vaultClient.getDatabaseConfig();
-      const dbUrl = dbConfig.getDatabaseUrl(getServiceDatabase(serviceName));
+      const dbUrl = dbConfig.getDatabaseUrl(); // Pas de paramètre, base unique
 
       // Valider l'URL de base de données
       if (!dbUrl || !dbUrl.startsWith('mysql://')) {
@@ -224,7 +173,7 @@ async function loadEnvFromVault(serviceName) {
       }
 
       process.env.DATABASE_URL = dbUrl;
-      console.log(`✅ Database configuration loaded for ${getServiceDatabase(serviceName)}`);
+      console.log(`✅ Database configuration loaded for shared database: transcendence`);
     } catch (error) {
       console.warn(`⚠️ Failed to load database config from Vault: ${error.message}`);
       // Fallback sera géré par le service
@@ -276,6 +225,61 @@ async function loadEnvFromVault(serviceName) {
         process.env.JWT_ALGORITHM = 'HS256';
         process.env.JWT_EXPIRATION = '24h';
       }
+
+      // Configuration OAuth - Chargement des secrets OAuth depuis Vault
+      try {
+        const oauthSecrets = await vaultClient.getSecret('oauth');
+
+        // Variables GitHub OAuth
+        if (oauthSecrets.github_client_id) {
+          process.env.GITHUB_CLIENT_ID = oauthSecrets.github_client_id;
+          process.env.GITHUB_CLIENT_SECRET = oauthSecrets.github_client_secret;
+          process.env.GITHUB_REDIRECT_URI = oauthSecrets.github_redirect_uri;
+
+          console.log('✅ GitHub OAuth configuration loaded from Vault');
+        }
+
+        // Variables 42 Intra OAuth
+        if (oauthSecrets.intra_client_id) {
+          process.env.INTRA_CLIENT_ID = oauthSecrets.intra_client_id;
+          process.env.INTRA_CLIENT_SECRET = oauthSecrets.intra_client_secret;
+          process.env.INTRA_REDIRECT_URI = oauthSecrets.intra_redirect_uri;
+
+          console.log('✅ 42 Intra OAuth configuration loaded from Vault');
+        }
+
+        // Variables Google OAuth (si disponibles)
+        if (oauthSecrets.google_client_id) {
+          process.env.GOOGLE_CLIENT_ID = oauthSecrets.google_client_id;
+          process.env.GOOGLE_CLIENT_SECRET = oauthSecrets.google_client_secret;
+
+          console.log('✅ Google OAuth configuration loaded from Vault');
+        }
+
+        // URL de base pour les callbacks
+        if (oauthSecrets.callback_url_base) {
+          process.env.CALLBACK_URL_BASE = oauthSecrets.callback_url_base;
+        }
+
+        console.log('✅ OAuth configuration fully loaded from Vault');
+
+      } catch (error) {
+        console.warn(`⚠️ Failed to load OAuth secrets: ${error.message}`);
+        console.warn('🔧 Using fallback OAuth configuration from environment or defaults');
+
+        // Fallbacks pour éviter le plantage du service
+        if (!process.env.GITHUB_CLIENT_ID) {
+          process.env.GITHUB_CLIENT_ID = 'fallback-github-client-id';
+          process.env.GITHUB_CLIENT_SECRET = 'fallback-github-client-secret';
+          process.env.GITHUB_REDIRECT_URI = 'https://localhost/oauth/github/callback';
+        }
+
+        if (!process.env.INTRA_CLIENT_ID) {
+          process.env.INTRA_CLIENT_ID = 'fallback-intra-client-id';
+          process.env.INTRA_CLIENT_SECRET = 'fallback-intra-client-secret';
+          process.env.INTRA_REDIRECT_URI = 'https://localhost/oauth/42/callback';
+        }
+      }
     }
 
     // Configuration API avec validation
@@ -295,37 +299,6 @@ async function loadEnvFromVault(serviceName) {
       process.env.RATE_LIMIT_WINDOW = '60000'; // 1 minute
       process.env.CORS_ORIGIN = '*';
       console.log(`🔧 Using fallback API config (Rate limit: ${process.env.RATE_LIMIT_MAX} req/min)`);
-    }
-
-    // Configuration spécifique au service de jeu
-    if (serviceName === 'game-service') {
-      try {
-        const gameConfig = await vaultClient.getSecret('game');
-
-        // Validation et assignation des configs de jeu
-        const gameSettings = {
-          WS_HEARTBEAT_INTERVAL: parseInt(gameConfig.ws_heartbeat_interval) || 30000,
-          WS_CONNECTION_TIMEOUT: parseInt(gameConfig.ws_connection_timeout) || 60000,
-          GAME_TICK_RATE: parseInt(gameConfig.game_tick_rate) || 60,
-          MATCH_TIMEOUT: parseInt(gameConfig.match_timeout) || 600000,
-          MATCHMAKING_TIMEOUT: parseInt(gameConfig.matchmaking_timeout) || 30000
-        };
-
-        for (const [key, value] of Object.entries(gameSettings)) {
-          if (value > 0) {
-            process.env[key] = String(value);
-          }
-        }
-
-        // Variables de sécurité pour HSTS
-        process.env.FORCE_HTTPS = gameConfig.force_https || 'true';
-        process.env.HSTS_MAX_AGE = gameConfig.hsts_max_age || '31536000';
-        process.env.SECURITY_HEADERS = gameConfig.security_headers || 'true';
-
-        console.log('✅ Game configuration loaded from Vault');
-      } catch (error) {
-        console.warn(`⚠️ Failed to load game config: ${error.message}`);
-      }
     }
 
     // Configuration des ports par service
@@ -357,9 +330,19 @@ async function loadEnvFromVault(serviceName) {
       process.env.PORT = portMap[serviceName] || '3000';
     }
 
+    // Fallbacks JWT pour auth-service
+    if (serviceName === 'auth-service' && !process.env.JWT_SECRET) {
+      process.env.JWT_SECRET = SecretManager.generateSecureToken(32);
+      process.env.JWT_ALGORITHM = 'HS256';
+      process.env.JWT_EXPIRATION = '24h';
+      console.warn('🔧 Generated temporary JWT secret for development');
+    }
+
     // Ne pas faire throw ici pour permettre au service de démarrer avec des fallbacks
   }
-}/**
+}
+
+/**
  * Retourne le nom de la base de données pour un service
  * @param {string} serviceName - Nom du service
  * @returns {string} Nom de la base de données
@@ -368,12 +351,14 @@ function getServiceDatabase(serviceName) {
   const dbMap = {
     'auth-service': 'auth_db',
     'user-service': 'user_db',
-    'game-service': 'game_db'
+    'game-service': 'game_db',
+    'gateway-service': 'user_db' // Gateway utilise la DB user pour l'agrégation
   };
-  return dbMap[serviceName] || 'transcendence';
+
+  return dbMap[serviceName] || 'transcendence_db';
 }
 
-module.exports = {
+export {
   VaultClient,
   loadEnvFromVault,
   SecretManager
