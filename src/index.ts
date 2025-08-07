@@ -17,10 +17,10 @@ await fastify.register(cors, {
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 });
 
-// Rate limiting avec des valeurs plus élevées pour le développement
+// Rate limiting avec des valeurs récupérées depuis Vault
 await fastify.register(rateLimit, {
-  max: parseInt(process.env.RATE_LIMIT_MAX || "1000"), // 1000 req/min au lieu de 100
-  timeWindow: parseInt(process.env.RATE_LIMIT_WINDOW || "60000") // 1 minute
+  max: parseInt("50000"), // Utiliser la valeur de Vault par défaut
+  timeWindow: parseInt("60000") // 1 minute
 });
 
 // Swagger pour la documentation API

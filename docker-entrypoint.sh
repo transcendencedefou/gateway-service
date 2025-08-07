@@ -4,13 +4,13 @@ echo "🚀 Starting gateway-service with Vault integration..."
 
 # Wait for vault-service to be ready (important!)
 echo "⏳ Waiting for vault-service to be ready..."
-for i in {1..30}; do
+for i in {1..60}; do
   if curl -s -f http://vault-service:8300/health > /dev/null 2>&1; then
     echo "✅ Vault-service is ready!"
     break
   fi
-  echo "Attempt $i/30: vault-service not ready, waiting 3s..."
-  sleep 3
+  echo "Attempt $i/60: vault-service not ready, waiting 2s..."
+  sleep 2
 done
 
 # Create temporary env file
@@ -25,6 +25,12 @@ async function loadEnv() {
   try {
     await loadEnvFromVault('gateway-service');
     console.log('✅ Environment loaded from Vault');
+
+    // Log de la configuration rate limit pour debug
+    console.log('🔍 Rate limit configuration:');
+    console.log('  RATE_LIMIT_MAX:', process.env.RATE_LIMIT_MAX);
+    console.log('  RATE_LIMIT_WINDOW:', process.env.RATE_LIMIT_WINDOW);
+
   } catch (error) {
     console.error('❌ Failed to load from Vault, using fallbacks:', error.message);
     // Set fallback environment variables consistent with Vault
@@ -33,6 +39,9 @@ async function loadEnv() {
     process.env.USER_SERVICE_URL = process.env.USER_SERVICE_URL || 'http://user-service:3001';
     process.env.GAME_SERVICE_URL = process.env.GAME_SERVICE_URL || 'http://game-service:3002';
     process.env.FRONT_SERVICE_URL = process.env.FRONT_SERVICE_URL || 'http://front-service:3004';
+    // Fallback rate limit avec des valeurs élevées
+    process.env.RATE_LIMIT_MAX = process.env.RATE_LIMIT_MAX || '50000';
+    process.env.RATE_LIMIT_WINDOW = process.env.RATE_LIMIT_WINDOW || '60000';
   }
 
   // Export all environment variables to file

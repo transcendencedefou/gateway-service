@@ -292,16 +292,16 @@ async function loadEnvFromVault(serviceName = 'gateway-service') {
     try {
       const apiConfig = await vaultClient.getSecret('api');
 
-      // Validation et assignation avec des valeurs plus appropriées pour le développement
-      process.env.RATE_LIMIT_MAX = String(parseInt(apiConfig.rate_limit_max) || 1000); // 1000 req/min au lieu de 100
+      // Validation et assignation en respectant les valeurs de Vault
+      process.env.RATE_LIMIT_MAX = String(parseInt(apiConfig.rate_limit_max) || 50000); // Utiliser la valeur élevée de Vault
       process.env.RATE_LIMIT_WINDOW = String(parseInt(apiConfig.rate_limit_window) || 60000); // 1 minute
       process.env.CORS_ORIGIN = apiConfig.cors_origin || '*';
 
       console.log(`✅ API configuration loaded from Vault (Rate limit: ${process.env.RATE_LIMIT_MAX} req/min)`);
     } catch (error) {
       console.warn(`⚠️ Failed to load API config: ${error.message}`);
-      // Fallbacks pour le développement
-      process.env.RATE_LIMIT_MAX = '1000'; // 1000 requêtes par minute pour le dev
+      // Fallbacks pour le développement avec des valeurs élevées
+      process.env.RATE_LIMIT_MAX = '50000'; // 50000 requêtes par minute pour le dev (cohérent avec Vault)
       process.env.RATE_LIMIT_WINDOW = '60000'; // 1 minute
       process.env.CORS_ORIGIN = '*';
       console.log(`🔧 Using fallback API config (Rate limit: ${process.env.RATE_LIMIT_MAX} req/min)`);
